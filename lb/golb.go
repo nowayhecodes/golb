@@ -2,17 +2,21 @@ package golb
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
 	Attempts int = iota
 	Retry
 )
+
+var serverPool ServerPool
 
 type Backend struct {
 	URL          *url.URL
@@ -111,7 +115,7 @@ func GetRetryFromContext(r *http.Request) int {
 	return 0
 }
 
-func lb(rw http.ResponseWriter, req *http.Request) {
+func LB(rw http.ResponseWriter, req *http.Request) {
 	attempts := GetAttemptsFromContext(req)
 
 	if attempts > 3 {
@@ -127,4 +131,29 @@ func lb(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	http.Error(rw, "service not available", http.StatusServiceUnavailable)
+}
+
+// isBackendAlive checks whether a backend is Alive by establishing a TCP connection
+func isBackendAlive(u *url.URL) bool {
+	timeout := 2 * time.Second
+	conn, err := net.DialTimeout("tcp", u.Host, timeout)
+	if err != nil {
+		log.Println("Site unreachable, error: ", err)
+		return false
+	}
+	defer conn.Close()
+	return true
+}
+
+// healthCheck runs a routine for check status of the backends every 2 mins
+func HealthChecker() {
+	t := time.NewTicker(time.Minute * 2)
+	for {
+		select {
+		case <-t.C:
+			log.Println("Starting health check...")
+			serverPool.HealthCheck()
+			log.Println("Health check completed")
+		}
+	}
 }
