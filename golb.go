@@ -1,10 +1,16 @@
 package golb
 
 import (
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"sync"
 	"sync/atomic"
+)
+
+const (
+	Attempts int = iota
+	Retry
 )
 
 type Backend struct {
@@ -58,4 +64,19 @@ func (backend *Backend) IsAlive() (alive bool) {
 	alive = backend.Alive
 	backend.syncc.RUnlock()
 	return
+}
+
+// AddBackend to the server pool
+func (pool *ServerPool) AddBackend(backend *Backend) {
+	pool.backends = append(pool.backends, backend)
+}
+
+func LB(rw http.ResponseWriter, req *http.Request) {
+	peer := serverPool.GetNextPeer()
+	if peer != nil {
+		peer.ReverseProxy.ServeHTTP(rw, req)
+		return
+	}
+
+	http.Error(rw, "Service not available", http.StatusServiceUnavailable)
 }
