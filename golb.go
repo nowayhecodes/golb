@@ -71,6 +71,16 @@ func (pool *ServerPool) AddBackend(backend *Backend) {
 	pool.backends = append(pool.backends, backend)
 }
 
+// ChangeBackendStatus changes a status of a backend
+func (pool *ServerPool) ChangeBackendStatus(backendUrl *url.URL, alive bool) {
+	for _, b := range pool.backends {
+		if b.URL.String() == backendUrl.String() {
+			b.SetAlive(alive)
+			break
+		}
+	}
+}
+
 func LB(rw http.ResponseWriter, req *http.Request) {
 	peer := serverPool.GetNextPeer()
 	if peer != nil {
