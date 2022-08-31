@@ -1,6 +1,7 @@
 package golb
 
 import (
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -81,12 +82,49 @@ func (pool *ServerPool) ChangeBackendStatus(backendUrl *url.URL, alive bool) {
 	}
 }
 
-func LB(rw http.ResponseWriter, req *http.Request) {
+// HealthCheck pings the backends and update the status
+func (s *ServerPool) HealthCheck() {
+	for _, b := range s.backends {
+		status := "up"
+		alive := isBackendAlive(b.URL)
+		b.SetAlive(alive)
+		if !alive {
+			status = "down"
+		}
+		log.Printf("%s [%s]\n", b.URL, status)
+	}
+}
+
+// GetAttemptsFromContext returns the attempts for request
+func GetAttemptsFromContext(r *http.Request) int {
+	if attempts, ok := r.Context().Value(Attempts).(int); ok {
+		return attempts
+	}
+	return 1
+}
+
+// GetRetryFromContext returns the attempts for request
+func GetRetryFromContext(r *http.Request) int {
+	if retry, ok := r.Context().Value(Retry).(int); ok {
+		return retry
+	}
+	return 0
+}
+
+func lb(rw http.ResponseWriter, req *http.Request) {
+	attempts := GetAttemptsFromContext(req)
+
+	if attempts > 3 {
+		log.Printf("%v(%v) max attempts reached. terminating...\n", req.RemoteAddr, req.URL.Path)
+		http.Error(rw, "service not available", http.StatusServiceUnavailable)
+		return
+	}
+
 	peer := serverPool.GetNextPeer()
 	if peer != nil {
 		peer.ReverseProxy.ServeHTTP(rw, req)
 		return
 	}
 
-	http.Error(rw, "Service not available", http.StatusServiceUnavailable)
+	http.Error(rw, "service not available", http.StatusServiceUnavailable)
 }
